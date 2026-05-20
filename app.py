@@ -115,5 +115,3 @@ async def predict_sleep(file: UploadFile = File(...)):
     finally:
 
         if temp_path and os.path.exists(temp_path):
-
-            os.remove(temp_path)
