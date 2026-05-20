@@ -8,7 +8,15 @@ import mne
 import tempfile
 import os
 
+# ============================================================
+# FASTAPI APP
+# ============================================================
+
 app = FastAPI()
+
+# ============================================================
+# ENABLE CORS
+# ============================================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -18,8 +26,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ============================================================
+# LOAD MODEL & SCALER
+# ============================================================
+
 model = joblib.load("sleep_model.pkl")
 scaler = joblib.load("scaler.pkl")
+
+# ============================================================
+# LABELS
+# ============================================================
 
 sleep_labels = {
     0: "Wake",
@@ -29,11 +45,20 @@ sleep_labels = {
     4: "REM"
 }
 
+# ============================================================
+# HOME ROUTE
+# ============================================================
+
 @app.get("/")
 def home():
+
     return {
         "message": "Sleep Detection API Running Successfully"
     }
+
+# ============================================================
+# PREDICT ROUTE
+# ============================================================
 
 @app.post("/predict")
 async def predict_sleep(file: UploadFile = File(...)):
@@ -42,7 +67,11 @@ async def predict_sleep(file: UploadFile = File(...)):
 
     try:
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".edf") as tmp:
+        # Save EDF temporarily
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".edf"
+        ) as tmp:
 
             content = await file.read()
 
@@ -50,16 +79,20 @@ async def predict_sleep(file: UploadFile = File(...)):
 
             temp_path = tmp.name
 
+        # Load EDF
         raw = mne.io.read_raw_edf(
             temp_path,
             preload=True,
             verbose=False
         )
 
+        # First EEG channel
         signal = raw.get_data()[0]
 
+        # Reduce memory usage
         signal = signal[:3000]
 
+        # Feature extraction
         freqs, psd = welch(
             signal,
             fs=raw.info['sfreq']
@@ -93,8 +126,10 @@ async def predict_sleep(file: UploadFile = File(...)):
             beta
         ]]
 
+        # Scale features
         X_scaled = scaler.transform(features)
 
+        # Prediction
         prediction = model.predict(X_scaled)[0]
 
         result = sleep_labels.get(
@@ -114,4 +149,7 @@ async def predict_sleep(file: UploadFile = File(...)):
 
     finally:
 
+        # Delete temp file
         if temp_path and os.path.exists(temp_path):
+
+            os.remove(temp_path)
