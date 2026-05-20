@@ -3,13 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import joblib
 import numpy as np
 from scipy.signal import welch
-from scipy.stats import skew, kurtosis
 import mne
 import tempfile
 import os
 
 # ============================================================
-# FASTAPI APP
+# CREATE FASTAPI APP
 # ============================================================
 
 app = FastAPI()
@@ -27,14 +26,14 @@ app.add_middleware(
 )
 
 # ============================================================
-# LOAD MODEL & SCALER
+# LOAD MODEL AND SCALER
 # ============================================================
 
 model = joblib.load("sleep_model.pkl")
 scaler = joblib.load("scaler.pkl")
 
 # ============================================================
-# LABELS
+# SLEEP LABELS
 # ============================================================
 
 sleep_labels = {
@@ -57,17 +56,20 @@ def home():
     }
 
 # ============================================================
-# PREDICT ROUTE
+# PREDICTION ROUTE
 # ============================================================
 
 @app.post("/predict")
-async def predict_sleep(file: UploadFile = File(...)):
+async def predict(file: UploadFile = File(...)):
 
     temp_path = None
 
     try:
 
-        # Save EDF temporarily
+        # ====================================================
+        # SAVE TEMP EDF FILE
+        # ====================================================
+
         with tempfile.NamedTemporaryFile(
             delete=False,
             suffix=".edf"
@@ -79,20 +81,29 @@ async def predict_sleep(file: UploadFile = File(...)):
 
             temp_path = tmp.name
 
-        # Load EDF
+        # ====================================================
+        # LOAD EDF FILE
+        # ====================================================
+
         raw = mne.io.read_raw_edf(
             temp_path,
             preload=True,
             verbose=False
         )
 
-        # First EEG channel
-        signal = raw.get_data()[0]
+        # ====================================================
+        # LOAD SMALL PART OF EEG
+        # ====================================================
 
-        # Reduce memory usage
-        signal = signal[:3000]
+        signal = raw.get_data(
+            start=0,
+            stop=3000
+        )[0]
 
-        # Feature extraction
+        # ====================================================
+        # FEATURE EXTRACTION
+        # ====================================================
+
         freqs, psd = welch(
             signal,
             fs=raw.info['sfreq']
@@ -118,24 +129,32 @@ async def predict_sleep(file: UploadFile = File(...)):
             np.mean(signal),
             np.std(signal),
             np.var(signal),
-            skew(signal),
-            kurtosis(signal),
             delta,
             theta,
             alpha,
             beta
         ]]
 
-        # Scale features
+        # ====================================================
+        # SCALE FEATURES
+        # ====================================================
+
         X_scaled = scaler.transform(features)
 
-        # Prediction
+        # ====================================================
+        # PREDICT
+        # ====================================================
+
         prediction = model.predict(X_scaled)[0]
 
         result = sleep_labels.get(
             int(prediction),
             "Unknown"
         )
+
+        # ====================================================
+        # RETURN RESULT
+        # ====================================================
 
         return {
             "predicted_stage": result
@@ -149,7 +168,10 @@ async def predict_sleep(file: UploadFile = File(...)):
 
     finally:
 
-        # Delete temp file
+        # ====================================================
+        # DELETE TEMP FILE
+        # ====================================================
+
         if temp_path and os.path.exists(temp_path):
 
             os.remove(temp_path)
